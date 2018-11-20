@@ -1,0 +1,177 @@
+---
+title: "STATS 415 Project Report"
+author: "Sicun Chen"
+output: pdf_document
+---
+
+## Library
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,warning = FALSE,message = FALSE)
+library(readr)
+library(knitr)
+library(dplyr)
+
+library(tm)
+library(SnowballC)
+library(wordcloud)
+
+library(ggplot2)
+library(ggthemes)
+library(RColorBrewer)
+
+library(caret)
+library(C50)
+library(irr)
+library(glmnet)
+```
+
+## Self-defined Function
+```{r}
+remove_list = function(x) {
+  gsub('^(\\(.+?\\))|^(\\[.+?\\])|\\r([^\\s]+?\\s+)\\r','' , x)
+}
+```
+
+
+## Preprocessing
+
+### Read file
+```{r}
+set.seed(1234)
+
+lyric = read_csv("~/Desktop/415 project/lyric.csv")
+lyric_raw = lyric[,c(4,5)]
+lyric_raw = unique(subset(lyric_raw,genre!="missing")) 
+lyric_raw <- lyric_raw[sample(nrow(lyric_raw)),] ## Random Dataset
+```
+
+### Convert Label into Factor
+```{r}
+lyric_raw$genre = factor(lyric_raw$genre)
+```
+
+### Convert Text into Corpus
+```{r, eval=FALSE, include=FALSE}
+lyric_corpus_raw = Corpus(VectorSource(lyric_raw$text))
+#inspect(lyric_corpus_raw[4:6])
+```
+
+### Clean Corpus
+```{r, eval=FALSE, include=FALSE}
+lyric_corpus_clean = lyric_corpus_raw %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(tolower)  %>%
+  tm_map(remove_list) %>%
+  tm_map(removeWords,c("intro","verse","chorus","x","guitar solo","coda","outro","vamp")) %>%
+  tm_map(removeWords, stopwords("english")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(stemDocument)
+#inspect(lyric_corpus_clean[160:163])
+```
+
+### Convert Text into Matrix
+```{r, eval=FALSE, include=FALSE}
+lyric_dtm = DocumentTermMatrix(lyric_corpus_clean) %>%
+  as.matrix()
+```
+
+### Figure1: Plot Word Distribution
+```{r,message=FALSE,warning=FALSE, eval=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+v = sort(colSums(lyric_dtm), decreasing = TRUE)
+d = data.frame(word=names(v), freq=v)
+density_chart = subset(d, d$freq<2000)
+ggplot(data=density_chart,aes(x=freq))+
+      geom_histogram(aes(y=..count..),
+                   binwidth=10,
+                   colour="black", fill="white") +
+  labs(title="Word Distribution, Subsetted by Condition Frequency < 2000") +
+  labs(x="Word Frequency") +
+  labs(y="Frequency Count") +
+  theme_fivethirtyeight()
+```
+
+### Combine Clean Lyric Corpus with Genre
+```{r, eval=FALSE, include=FALSE}
+lyric_clean_df = data.frame(text=sapply(lyric_corpus_clean, as.character), stringsAsFactors = FALSE)
+lyric_clean_df = unique(cbind(lyric_clean_df, lyric_raw$genre))
+colnames(lyric_clean_df)[2]="genre"
+```
+
+### Figure2: Plot Songs Count by Genre
+```{r,fig.width=8, eval=FALSE, fig.width=8, include=FALSE}
+ggplot(data=lyric_clean_df, aes(x=reorder(genre, genre,
+                     function(x)-length(x)), fill=genre)) + geom_bar(alpha=0.7) + labs(title="Genre Count") + geom_text(stat='count', aes(label=..count..), vjust=-1) + theme_fivethirtyeight() + guides(fill=FALSE)
+```
+
+### Table1: Top 20 Most Frequent Words
+```{r, eval=FALSE, include=FALSE}
+kable(head(d,10))
+```
+
+
+
+
+
+### Logistic Regression: Cross Validation, Oversampling & Undersampling, Fitting Model, Prediction, Valuation
+```{r, eval=FALSE, include=FALSE}
+set.seed(123)
+folds <- createFolds(lyric_raw$genre, k = 10)
+
+cv_results <- lapply(folds, function(x) {
+  
+  credit_train <- lyric_raw[x, ]
+  credit_test <- credit[-x, ]
+  credit_model <- C5.0(default ~ ., data = credit_train)
+  credit_pred <- predict(credit_model, credit_test)
+  credit_actual <- credit_test$default
+  kappa <- kappa2(data.frame(credit_actual, credit_pred))$value
+  return(kappa)
+})
+
+str(cv_results)
+mean(unlist(cv_results))
+```
+
+
+### Load Model
+```{r}
+lyric_dtm = readRDS('lyric_dtm.rds')
+new_dtm = readRDS('new_dtm.rds') # count < 10
+
+
+lyric_dtm_tf_idf = DocumentTermMatrix(lyric_corpus_clean, control = list(weighting = weightTfIdf))
+
+
+```
+
+
+
+
+
+### Separate Train and Test
+```{r}
+lyric_raw_train <- lyric_raw[1:38900, ]
+lyric_raw_test  <- lyric_raw[38901:55571, ]
+
+lyric_dtm_train <- lyric_dtm[1:38900, ]
+lyric_dtm_test  <- lyric_dtm[38901:55571, ]
+
+sms_corpus_train <- corpus_clean[1:4169]
+sms_corpus_test  <- corpus_clean[4170:5559]
+
+```
+
+
+
+### Model 1: Logit (Baseline)
+
+#### Training a model on the entire dataset
+
+```{r}
+
+model.logit.full <- glmnet(new_dtm, lyric_raw$genre, family = "multinomial")
+
+#summary(model.logit)
+```
+
